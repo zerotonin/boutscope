@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+docs/_build/
+.idea/
+.vscode/
+*.swp
+*~
+
+# Machine-specific paths: copy local_paths.template.json and fill it in.
+local_paths.json
+
+# Projects, videos and verdict databases are data, not code.
+*.sqlite
+*.mp4
+*.avi

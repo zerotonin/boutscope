@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy this file to local_paths.json (git-ignored) next to it, or to ~/.config/boutscope/local_paths.json for an installed package, and fill in the paths for each machine. BOUTSCOPE_<KEY> environment variables override any value; BOUTSCOPE_PROFILE picks the profile. See src/boutscope/config.py.",
+  "active_profile": "local",
+  "profiles": {
+    "local": {
+      "video_root": "<absolute path to the folder your project's video paths are relative to>",
+      "project_root": "<absolute path to the folder that holds your boutscope projects>"
+    },
+    "hpc": {
+      "video_root": "<cluster path to the video folder, e.g. /projects/<group>/videos>",
+      "project_root": "<cluster path to the project folder>"
+    }
+  }
+}

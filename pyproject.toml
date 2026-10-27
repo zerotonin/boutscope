@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools >= 68.0", "setuptools-scm >= 8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boutscope"
+dynamic = ["version"]
+description = "Ground truth for behavioural categorisers: sample labelled bouts, watch them, rate them"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Bart R. H. Geurten", email = "bart.geurten@otago.ac.nz"},
+]
+keywords = [
+    "behaviour", "ethology", "pose-estimation", "annotation", "ground-truth",
+    "keypoint-moseq", "clustering", "video",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "numpy >= 1.24",
+    "pandas >= 2.0",
+    "pyarrow >= 12",
+    "tomli >= 2.0; python_version < '3.11'",
+    "tomli-w >= 1.0",
+    "opencv-python-headless >= 4.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest >= 7.0",
+    "pytest-cov >= 4.0",
+    "ruff >= 0.4",
+]
+
+[project.scripts]
+boutscope = "boutscope.cli:main"
+
+[project.urls]
+Repository = "https://github.com/zerotonin/boutscope"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]

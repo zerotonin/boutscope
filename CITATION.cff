@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "boutscope: ground truth for behavioural categorisers"
+message: "If you use this software, please cite it as below."
+type: software
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/zerotonin/boutscope"
+keywords:
+  - behaviour
+  - ethology
+  - pose-estimation
+  - annotation
+  - ground-truth
+  - keypoint-MoSeq
+  - clustering
+  - Python
+authors:
+  - given-names: "Bart R.H."
+    family-names: Geurten
+    email: bart.geurten@otago.ac.nz
+    orcid: "https://orcid.org/0000-0002-1816-3241"
+    affiliation: "Department of Zoology, University of Otago, Dunedin, New Zealand"
+abstract: >-
+  boutscope collects ground truth for the output of behavioural
+  categorisers such as k-means prototype movements, keypoint-MoSeq
+  syllables, B-SOiD, VAME or SimBA.  Adapters turn a categoriser's
+  per-frame labels into one project format; boutscope indexes the
+  labels into bouts, draws seeded and stratified samples of bouts in
+  a chosen duration range, shows them in the original video and
+  records verdicts, from which it estimates the precision of every
+  label with a confidence interval.
