@@ -17,7 +17,7 @@ candidates to the top / bottom typicality quantile.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pandas as pd
@@ -143,6 +143,25 @@ def build_draw_order(bouts: pd.DataFrame, request: SampleRequest) -> np.ndarray:
         animal = candidates["animal"].astype(str).to_numpy()[order]
         drawn = drawn[_rank_within_groups(animal) < request.max_per_animal]
     return drawn
+
+
+def build_blind_order(
+    bouts: pd.DataFrame, request: SampleRequest, labels: tuple[str, ...]
+) -> np.ndarray:
+    """Draw orders of several labels, interleaved so each label gets the same share.
+
+    Each label keeps its own stratified order; the labels take turns in an
+    order that is reshuffled every round, so position does not reveal the
+    label.  Rounds stop where the scarcest label runs out, so every label is
+    equally represented in any prefix.
+    """
+    if len(labels) < 2:
+        raise SamplingError("a blind session needs at least two labels")
+    orders = [build_draw_order(bouts, replace(request, label=str(lab))) for lab in labels]
+    rounds = min(len(o) for o in orders)
+    rng = build_rng(replace(request, label="|".join(map(str, labels))))
+    turns = [rng.permutation(len(labels)) for _ in range(rounds)]
+    return np.array([orders[i][r] for r, turn in enumerate(turns) for i in turn], dtype=np.int64)
 
 
 def build_rng(request: SampleRequest) -> np.random.Generator:
