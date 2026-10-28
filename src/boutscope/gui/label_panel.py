@@ -41,7 +41,7 @@ class LabelPanel(QWidget):
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setStretchLastSection(True)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Labelling"))
         layout.addWidget(self.labelling_box)

@@ -200,8 +200,8 @@ class MainWindow(QMainWindow):
         for bout_id in bout_ids:
             bout = self.browser.bout(bout_id)
             item = QListWidgetItem(
-                f"{self.bout_list.count() + 1:>3}  {bout['video']}  {bout['animal']}  "
-                f"frame {bout['start']}  {bout['duration_s'] * 1000:.0f} ms"
+                f"{self.bout_list.count() + 1:>3}  {bout['animal']}  frame {bout['start']}  "
+                f"{bout['duration_s'] * 1000:.0f} ms  ·  {bout['video']}"
             )
             item.setData(Qt.ItemDataRole.UserRole, int(bout_id))
             self.bout_list.addItem(item)
@@ -477,7 +477,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(middle)
         splitter.addWidget(self.player)
         splitter.addWidget(self.verdicts)
-        splitter.setSizes([260, 360, 760, 220])
+        splitter.setSizes([330, 360, 700, 210])
         self.setCentralWidget(splitter)
 
     def _build_menu(self) -> None:
