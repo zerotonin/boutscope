@@ -48,6 +48,7 @@ class ClipRequest:
     bout_stop: int  # clip index after the bout's last shown frame
     roi: AnimalBox | None
     truncated: bool  # bout longer than MAX_CLIP_S, shown from its start
+    video_frames: tuple[int, ...] | None = None  # per clip frame, from a frame map
 
     def key(self) -> tuple[int, bool]:
         return self.bout_id, self.roi is not None
@@ -81,15 +82,24 @@ def build_clip_request(
     *,
     context_s: float | None = None,
     zoom: bool = True,
+    frame_map: np.ndarray | None = None,
 ) -> ClipRequest:
-    """Clip for one bout-table row (any object with the bout columns as attributes)."""
+    """Clip for one bout-table row (any object with the bout columns as attributes).
+
+    With the video's *frame_map*, every clip frame gets its exact video frame;
+    a project frame the video lacks (a dropped camera frame) repeats the
+    nearest earlier one.
+    """
     fps = project.fps
     ctx = int(round((project.context_s if context_s is None else context_s) * fps))
     max_bout = max(1, int(round(bc.MAX_CLIP_S * fps)) - 2 * ctx)
     shown = min(int(bout.n_frames), max_bout)
-    before = min(ctx, int(bout.video_frame_start))  # no frames before the file starts
     video = str(bout.video)
     animal = str(bout.animal)
+    roi = project.videos[video].boxes.get(animal) if zoom else None
+    if frame_map is not None:
+        return _clip_from_frame_map(bout, path, frame_map, ctx, shown, roi)
+    before = min(ctx, int(bout.video_frame_start))  # no frames before the file starts
     return ClipRequest(
         bout_id=int(bout.bout_id),
         video=video,
@@ -100,9 +110,45 @@ def build_clip_request(
         n_frames=before + shown + ctx,
         bout_start=before,
         bout_stop=before + shown,
-        roi=project.videos[video].boxes.get(animal) if zoom else None,
+        roi=roi,
         truncated=shown < int(bout.n_frames),
     )
+
+
+def _clip_from_frame_map(bout, path, frame_map, ctx, shown, roi) -> ClipRequest:
+    start = int(bout.start)
+    before = min(ctx, start)
+    project_frames = np.arange(start - before, min(start + shown + ctx, len(frame_map)))
+    video_frames = fill_missing_frames(np.asarray(frame_map[project_frames]))
+    if (video_frames < 0).all():
+        raise VideoError(f"bout {int(bout.bout_id)}: the video has none of its frames")
+    return ClipRequest(
+        bout_id=int(bout.bout_id),
+        video=str(bout.video),
+        animal=str(bout.animal),
+        path=Path(path),
+        first_frame=start - before,
+        video_first=int(video_frames.min()),
+        n_frames=len(video_frames),
+        bout_start=before,
+        bout_stop=min(before + shown, len(video_frames)),
+        roi=roi,
+        truncated=shown < int(bout.n_frames),
+        video_frames=tuple(int(v) for v in video_frames),
+    )
+
+
+def fill_missing_frames(video_frames: np.ndarray) -> np.ndarray:
+    """Replace -1 by the previous valid frame (leading -1 by the next one)."""
+    frames = np.asarray(video_frames, dtype=np.int64).copy()
+    valid = frames >= 0
+    if not valid.any():
+        return frames
+    index = np.where(valid, np.arange(len(frames)), -1)
+    previous = np.maximum.accumulate(index)
+    first_valid = int(np.flatnonzero(valid)[0])
+    previous[previous < 0] = first_valid
+    return frames[previous]
 
 
 class VideoReader:
@@ -138,8 +184,10 @@ class VideoReader:
 
         capture = self._capture(request.path)
         seek_frame(capture, request.video_first)
+        wanted = request.video_frames
+        n_read = request.n_frames if wanted is None else max(wanted) - request.video_first + 1
         frames, box = [], None
-        for _ in range(request.n_frames):
+        for _ in range(n_read):
             ok, frame = capture.read()
             if not ok:
                 break
@@ -149,6 +197,12 @@ class VideoReader:
             frames.append(cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2RGB))
         if not frames:
             raise VideoError(f"{request.path.name}: no frames at {request.video_first}")
+        if wanted is not None:
+            frames = [
+                frames[v - request.video_first]
+                for v in wanted
+                if v - request.video_first < len(frames)
+            ]
         return frames, box
 
     def _capture(self, path: Path):

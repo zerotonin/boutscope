@@ -64,6 +64,7 @@ class Browser:
         self._bouts: dict[str, pd.DataFrame] = {}
         self._lookups: dict[str, LabelLookup] = {}
         self._label_tables: dict[str, pd.DataFrame] = {}
+        self._frame_maps: dict[str, np.ndarray | None] = {}
         self.labelling = next(iter(project.labellings))
         self.label: str | None = None
         self.request: SampleRequest | None = None
@@ -247,8 +248,13 @@ class Browser:
 
     def clip_request(self, bout_id: int, zoom: bool = True) -> ClipRequest:
         bout = self.bout(bout_id)
-        path = resolve_video_path(self.project, str(bout["video"]), self.video_root)
-        return build_clip_request(self.project, bout, path, zoom=zoom)
+        video = str(bout["video"])
+        path = resolve_video_path(self.project, video, self.video_root)
+        if video not in self._frame_maps:
+            self._frame_maps[video] = self.project.load_frame_map(video)
+        return build_clip_request(
+            self.project, bout, path, zoom=zoom, frame_map=self._frame_maps[video]
+        )
 
     def strips(self, request: ClipRequest) -> list[Strip]:
         """What every labelling says over the clip's frames, current labelling first."""

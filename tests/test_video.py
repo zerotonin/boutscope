@@ -122,3 +122,36 @@ def test_loader_caches_and_prefetches(video):
     clip = loader.get(requests[1]).result(timeout=10)
     assert decode_frame_index(clip.frames[0][..., ::-1]) == 10
     loader.shutdown()
+
+
+def test_frame_map_clip_repeats_dropped_frames(tmp_path, video):
+    from boutscope.video import fill_missing_frames
+
+    videos = {"v": bp.VideoEntry(path=str(video), fps=50.0)}
+    project = bp.create_project(tmp_path / "p", "p", 50.0, "generic", videos)
+    frame_map = np.r_[np.arange(0, 50), -1, np.arange(50, 399)]  # project frame 50 dropped
+    bp.write_frame_map(project, "v", frame_map)
+    bout = SimpleNamespace(
+        bout_id=1, video="v", animal="a", start=48, n_frames=6, video_frame_start=48
+    )
+    request = build_clip_request(
+        project, bout, video, context_s=0.04, frame_map=project.load_frame_map("v")
+    )
+    assert request.first_frame == 46 and request.bout_start == 2
+    assert request.video_frames == (46, 47, 48, 49, 49, 50, 51, 52, 53, 54)
+    clip = VideoReader().read_clip(request)
+    assert [decode_frame_index(f[..., ::-1]) for f in clip.frames] == list(request.video_frames)
+    np.testing.assert_array_equal(
+        fill_missing_frames(np.array([-1, -1, 3, -1, 5])), [3, 3, 3, 3, 5]
+    )
+
+
+def test_write_frame_map_validates(tmp_path):
+    project = bp.create_project(
+        tmp_path / "p", "p", 50.0, "generic", {"v": bp.VideoEntry(path="v", fps=50.0)}
+    )
+    with pytest.raises(bp.ProjectError, match="increase"):
+        bp.write_frame_map(project, "v", np.array([0, 2, 1]))
+    with pytest.raises(bp.ProjectError, match="not in"):
+        bp.write_frame_map(project, "w", np.array([0]))
+    assert project.load_frame_map("v") is None
