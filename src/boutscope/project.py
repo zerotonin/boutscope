@@ -67,8 +67,13 @@ class AnimalBox:
 
 @dataclass(frozen=True)
 class VideoEntry:
-    """One video file.  ``video_frame = frame + frame_offset`` unless the
-    label table carries its own ``video_frame`` column."""
+    """One video file.
+
+    The video frame of a project frame comes from, in this order: the label
+    table's ``video_frame`` column, the video's frame map
+    (``framemap/<video>.npy``), or ``frame + frame_offset``.  ``strata`` are
+    per-video stratum values that fill a label table lacking those columns.
+    """
 
     path: str  # relative to the video root
     fps: float
@@ -76,6 +81,7 @@ class VideoEntry:
     width: int | None = None
     height: int | None = None
     boxes: dict[str, AnimalBox] = field(default_factory=dict)
+    strata: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -124,6 +130,14 @@ class Project:
     def load_bouts(self, labelling: str) -> pd.DataFrame:
         self._require(labelling)
         return pd.read_parquet(self.bouts_path(labelling))
+
+    def frame_map_path(self, video: str) -> Path:
+        return self.root / bc.FRAMEMAP_DIR / f"{video}.npy"
+
+    def load_frame_map(self, video: str) -> np.ndarray | None:
+        """Video frame per project frame (-1 = none), memory-mapped; None without a map."""
+        path = self.frame_map_path(video)
+        return np.load(path, mmap_mode="r") if path.is_file() else None
 
     def load_label_meta(self, labelling: str) -> dict[str, LabelMeta]:
         self._require(labelling)
@@ -190,11 +204,13 @@ def add_labelling(
     if not labelling.replace("_", "").replace("-", "").isalnum():
         raise ProjectError(f"labelling name {labelling!r}: use letters, digits, '_' and '-'")
     table = normalise_label_table(table, project)
+    videos = [str(v) for v in table["video"].cat.categories]
     bouts = build_bout_table(
         table,
         project.fps,
         strata=project.strata,
         frame_offsets={v: e.frame_offset for v, e in project.videos.items()},
+        frame_maps={v: m for v in videos if (m := project.load_frame_map(v)) is not None},
     )
     meta = complete_label_meta(meta or {}, table["label"].cat.categories)
     table.to_parquet(project.label_path(labelling), index=False)
@@ -277,14 +293,17 @@ def load_videos(path: Path) -> dict[str, VideoEntry]:
     videos = {}
     for name, entry in raw.get("videos", {}).items():
         boxes = {a: AnimalBox(**b) for a, b in entry.pop("boxes", {}).items()}
-        videos[name] = VideoEntry(**entry, boxes=boxes)
+        strata = {k: str(v) for k, v in entry.pop("strata", {}).items()}
+        videos[name] = VideoEntry(**entry, boxes=boxes, strata=strata)
     return videos
 
 
 def save_videos(videos: dict[str, VideoEntry], path: Path) -> None:
     raw = {"videos": {}}
     for name, entry in videos.items():
-        item = _drop_empty({k: v for k, v in vars(entry).items() if k != "boxes"})
+        item = _drop_empty({k: v for k, v in vars(entry).items() if k not in ("boxes", "strata")})
+        if entry.strata:
+            item["strata"] = dict(entry.strata)
         if entry.boxes:
             item["boxes"] = {a: vars(b) for a, b in entry.boxes.items()}
         raw["videos"][name] = item
@@ -305,9 +324,6 @@ def normalise_label_table(table: pd.DataFrame, project: Project) -> pd.DataFrame
     missing = [c for c in bc.REQUIRED_LABEL_COLUMNS if c not in table]
     if missing:
         raise ProjectError(f"label table lacks column(s) {missing}")
-    missing_strata = [c for c in project.strata if c not in table]
-    if missing_strata:
-        raise ProjectError(f"label table lacks the project's stratum column(s) {missing_strata}")
     if table[list(bc.REQUIRED_LABEL_COLUMNS)].isna().any().any():
         raise ProjectError("video, animal, frame and label must not be empty")
     frame = table["frame"].to_numpy()
@@ -320,6 +336,9 @@ def normalise_label_table(table: pd.DataFrame, project: Project) -> pd.DataFrame
             f"videos not in {bc.VIDEOS_FILE}: {unknown[:5]}"
             + (f" and {len(unknown) - 5} more" if len(unknown) > 5 else "")
         )
+    per_video = {
+        c: _strata_from_videos(c, video, project) for c in project.strata if c not in table
+    }
     animal = _sorted_categorical(table["animal"])
     frame = frame.astype(np.int64)
     order = np.lexsort((frame, animal.codes, video.codes))
@@ -335,7 +354,8 @@ def normalise_label_table(table: pd.DataFrame, project: Project) -> pd.DataFrame
         columns["typicality"] = table["typicality"].to_numpy(dtype=np.float64)[order]
     for column in project.strata:
         if column not in columns:
-            columns[column] = _sorted_categorical(table[column])[order]
+            values = per_video[column] if column in per_video else table[column]
+            columns[column] = _sorted_categorical(values)[order]
     out = pd.DataFrame(columns)
     _raise_on_duplicates(out)
     return out
@@ -355,6 +375,34 @@ def _raise_on_duplicates(out: pd.DataFrame) -> None:
             f"{int(duplicated.sum())} duplicate (video, animal, frame) rows, "
             f"e.g. {first.video}, {first.animal}, frame {first.frame}"
         )
+
+
+def _strata_from_videos(column: str, video: pd.Categorical, project: Project) -> pd.Series:
+    """A stratum column filled from the per-video values in videos.toml."""
+    lacking = [v for v in video.categories if column not in project.videos[v].strata]
+    if lacking:
+        raise ProjectError(
+            f"label table lacks stratum column {column!r} and videos.toml gives no value "
+            f"for {lacking[:3]}"
+        )
+    values = np.array([project.videos[v].strata[column] for v in video.categories], dtype=object)
+    return pd.Series(pd.Categorical(values[video.codes]))
+
+
+def write_frame_map(project: Project, video: str, video_frames: np.ndarray) -> Path:
+    """Store the video frame of every project frame 0..N-1 (-1 where the video has none)."""
+    if video not in project.videos:
+        raise ProjectError(f"video {video!r} not in {bc.VIDEOS_FILE}")
+    frames = np.asarray(video_frames, dtype=np.int64)
+    if frames.ndim != 1 or (frames < -1).any():
+        raise ProjectError("a frame map is one video frame (>= 0) or -1 per project frame")
+    valid = frames[frames >= 0]
+    if np.any(np.diff(valid) <= 0):
+        raise ProjectError(f"frame map of {video!r} must increase strictly")
+    path = project.frame_map_path(video)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(path, frames)
+    return path
 
 
 def complete_label_meta(meta: dict[str, LabelMeta], labels: pd.Index) -> dict[str, LabelMeta]:

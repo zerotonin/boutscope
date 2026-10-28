@@ -29,12 +29,14 @@ def build_bout_table(
     *,
     strata: Sequence[str] = (),
     frame_offsets: Mapping[str, int] | None = None,
+    frame_maps: Mapping[str, np.ndarray] | None = None,
 ) -> pd.DataFrame:
     """Run-length encode a canonical label table (sorted by video, animal, frame).
 
     ``start`` / ``stop`` are frames (stop exclusive).  ``video_frame_start`` /
     ``video_frame_stop`` locate the bout in the video file: from the table's
-    ``video_frame`` column if present, else ``frame + frame_offset``.  Stratum
+    ``video_frame`` column if present, else the video's frame map (first and
+    last frame of the bout the video actually has), else ``frame + frame_offset``.  Stratum
     columns take their value at the bout's first frame; ``typicality`` is the
     bout mean.
     """
@@ -71,6 +73,14 @@ def build_bout_table(
         offset = per_video[bouts["video"].cat.codes.to_numpy()]
         bouts["video_frame_start"] = bouts["start"].to_numpy() + offset
         bouts["video_frame_stop"] = bouts["stop"].to_numpy() + offset
+        for video, frame_map in (frame_maps or {}).items():
+            rows = (bouts["video"].astype(str) == video).to_numpy()
+            if rows.any():
+                start, stop = map_bout_to_video(
+                    frame_map, bouts["start"].to_numpy()[rows], bouts["stop"].to_numpy()[rows]
+                )
+                bouts.loc[rows, "video_frame_start"] = start
+                bouts.loc[rows, "video_frame_stop"] = stop
     for column in strata:
         values = table[column]
         bouts[column] = (
@@ -81,6 +91,26 @@ def build_bout_table(
     if "typicality" in table:
         bouts["typicality"] = compute_bout_means(table["typicality"].to_numpy(), starts)
     return bouts
+
+
+def map_bout_to_video(
+    frame_map: np.ndarray, start: np.ndarray, stop: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """First and (exclusive) last video frame inside each bout; -1 if it has none."""
+    frame_map = np.asarray(frame_map)
+    index = np.arange(len(frame_map))
+    valid = frame_map >= 0
+    next_valid = np.minimum.accumulate(np.where(valid, index, len(frame_map))[::-1])[::-1]
+    prev_valid = np.maximum.accumulate(np.where(valid, index, -1))
+    first = next_valid[np.clip(start, 0, len(frame_map) - 1)]
+    last = prev_valid[np.clip(stop - 1, 0, len(frame_map) - 1)]
+    inside = (first <= last) & (first < len(frame_map)) & (start < len(frame_map))
+    safe_first = np.clip(first, 0, len(frame_map) - 1)
+    safe_last = np.clip(last, 0, len(frame_map) - 1)
+    return (
+        np.where(inside, frame_map[safe_first], -1),
+        np.where(inside, frame_map[safe_last] + 1, -1),
+    )
 
 
 def _take_categorical(values: pd.Series, rows: np.ndarray) -> pd.Categorical:

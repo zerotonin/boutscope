@@ -21,6 +21,7 @@ VIDEOS_FILE: str = "videos.toml"
 LABELS_DIR: str = "labels"
 BOUTS_DIR: str = "bouts"
 POSE_DIR: str = "pose"
+FRAMEMAP_DIR: str = "framemap"  # per video: video frame of every project frame, -1 = none
 DB_FILE: str = "boutscope.sqlite"
 LABEL_TABLE_SUFFIX: str = ".parquet"
 LABEL_META_SUFFIX: str = ".meta.toml"

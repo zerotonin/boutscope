@@ -113,3 +113,17 @@ def test_load_errors(tmp_path):
     project = bp.create_project(tmp_path, "p", FPS, "generic", _videos("v"))
     with pytest.raises(bp.ProjectError, match="no labelling"):
         project.load_bouts("nope")
+
+
+def test_strata_filled_from_videos(tmp_path):
+    videos = {
+        "v": bp.VideoEntry(path="v.mp4", fps=FPS, strata={"condition": "PTZ"}),
+        "w": bp.VideoEntry(path="w.mp4", fps=FPS),
+    }
+    project = bp.create_project(tmp_path, "p", FPS, "generic", videos, strata=("condition",))
+    assert bp.load_project(tmp_path).videos["v"].strata == {"condition": "PTZ"}
+    table = pd.DataFrame({"video": "v", "animal": "a", "frame": [0, 1], "label": "x"})
+    project = bp.add_labelling(project, "pm", table)
+    assert project.load_bouts("pm")["condition"].astype(str).tolist() == ["PTZ"]
+    with pytest.raises(bp.ProjectError, match="gives no value"):
+        bp.add_labelling(project, "other", table.assign(video="w"))

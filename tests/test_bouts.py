@@ -100,3 +100,17 @@ def test_summary_and_histogram(project):
     assert np.all(np.diff(edges) > 0)
     one_frame = (bouts.n_frames == 1).sum()
     assert counts[0] == one_frame  # the first bin holds exactly the one-frame bouts
+
+
+def test_video_frames_from_frame_map():
+    from boutscope.bouts import map_bout_to_video
+
+    frame_map = np.array([10, 11, -1, 13, -1, -1, 16])
+    start, stop = map_bout_to_video(frame_map, np.array([0, 2, 4, 4]), np.array([4, 4, 7, 6]))
+    np.testing.assert_array_equal(start, [10, 13, 16, -1])
+    np.testing.assert_array_equal(stop, [14, 14, 17, -1])
+    table = _canonical(
+        pd.DataFrame({"video": "v", "animal": "a", "frame": [0, 1, 2, 3], "label": "x"})
+    )
+    bouts = build_bout_table(table, FPS, frame_maps={"v": frame_map})
+    assert (bouts.video_frame_start.item(), bouts.video_frame_stop.item()) == (10, 14)
