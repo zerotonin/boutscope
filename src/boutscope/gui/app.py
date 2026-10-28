@@ -14,8 +14,8 @@ import tempfile
 from concurrent.futures import Future
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtCore import QObject, QSettings, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -29,17 +29,24 @@ from PySide6.QtWidgets import (
 )
 
 from boutscope import config
+from boutscope import constants as bc
+from boutscope.annotations import AnnotationError, AnnotationStore, Verdict
 from boutscope.browser import Browser
+from boutscope.gui.dialogs import BlindDialog, ResumeDialog, ask_annotator
 from boutscope.gui.histogram import HistogramPanel
 from boutscope.gui.label_panel import LabelPanel
 from boutscope.gui.player import Player
 from boutscope.gui.sampler_panel import DrawSettings, SamplerPanel
+from boutscope.gui.verdict_panel import VerdictPanel
 from boutscope.pose import PoseStore
 from boutscope.project import Project, ProjectError, load_project
 from boutscope.sampling import SamplingError
 from boutscope.video import ClipLoader, ClipRequest, VideoReader
 
-WINDOW_SIZE: tuple[int, int] = (1400, 900)
+WINDOW_SIZE: tuple[int, int] = (1600, 920)
+SETTINGS_ANNOTATOR: str = "annotator"
+VERDICT_KEYS: tuple[str, ...] = ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "U")
+RATED_MARK: str = "●"
 
 
 class _ClipBridge(QObject):
@@ -49,11 +56,18 @@ class _ClipBridge(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, project: Project | None = None, video_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        project: Project | None = None,
+        video_root: Path | None = None,
+        annotator: str | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("boutscope")
         self.resize(*WINDOW_SIZE)
         self.video_root = video_root
+        self.annotator = annotator
+        self.store: AnnotationStore | None = None
         self.browser: Browser | None = None
         self.pose: PoseStore | None = None
         self.loader = ClipLoader(VideoReader())
@@ -66,6 +80,7 @@ class MainWindow(QMainWindow):
         self.sampler = SamplerPanel()
         self.bout_list = QListWidget()
         self.player = Player(fps=50.0)
+        self.verdicts = VerdictPanel()
         self._build_layout()
         self._build_menu()
         self._build_shortcuts()
@@ -80,6 +95,8 @@ class MainWindow(QMainWindow):
         self.player.previous_requested.connect(lambda: self._move_bout(-1))
         self.player.next_requested.connect(lambda: self._move_bout(1))
         self.player.zoom_toggled.connect(lambda _: self._show_current_bout())
+        self.verdicts.verdict_given.connect(self._on_verdict)
+        self.verdicts.name_proposed.connect(self._on_name)
         if project is not None:
             self.open_project(project)
 
@@ -88,14 +105,18 @@ class MainWindow(QMainWindow):
     # └────────────────────────────────────────────────────────────┘
 
     def open_project(self, project: Project) -> None:
+        if self.store is not None:
+            self.store.close()
+        self.store = AnnotationStore(project.root / bc.DB_FILE)
+        annotator = self._resolve_annotator()
         try:
-            self.browser = Browser(project, self.video_root)
+            self.browser = Browser(project, self.video_root, self.store, annotator)
         except ValueError as error:
             QMessageBox.warning(self, "boutscope", str(error))
             return
         self.pose = PoseStore(project)
         self.player.fps = project.fps
-        self.setWindowTitle(f"boutscope — {project.name}")
+        self._update_title()
         self.labels.set_labellings(list(project.labellings))
         self.sampler.set_strata(self.browser.stratum_columns())
         self._on_labelling(self.browser.labelling)
@@ -106,6 +127,8 @@ class MainWindow(QMainWindow):
         self.sampler.set_typicality_available(
             self.browser.project.labellings[labelling].has_typicality
         )
+        table = self.browser.label_table()
+        self.verdicts.set_labels([(key, row["name"]) for key, row in table.iterrows()])
         self._clear_bouts()
         self.labels.select_row(0)
 
@@ -150,12 +173,23 @@ class MainWindow(QMainWindow):
         except SamplingError as error:
             QMessageBox.warning(self, "boutscope", str(error))
             return
+        self._start_list(batch)
+
+    def _start_list(self, batch: list[int], row: int = 0) -> None:
         self._clear_bouts()
+        self.verdicts.set_blind(self._blind_options())
         self._append_bouts(batch)
+        self._update_title()
         if self.bout_list.count():
-            self.bout_list.setCurrentRow(0)
+            self.bout_list.setCurrentRow(min(row, self.bout_list.count() - 1))
         else:
             self.player.show_message("No bouts in this range.")
+
+    def _blind_options(self) -> list[tuple[str, str]] | None:
+        if not self.browser.is_blind:
+            return None
+        names = self.browser.label_table()["name"]
+        return [(key, names[key]) for key in self.browser.label_set]
 
     def _on_more(self, n: int) -> None:
         if self.browser is None or self.browser.session is None:
@@ -171,6 +205,7 @@ class MainWindow(QMainWindow):
             )
             item.setData(Qt.ItemDataRole.UserRole, int(bout_id))
             self.bout_list.addItem(item)
+            self._mark_item(item)
         session = self.browser.session
         self.sampler.set_can_draw_more(session is not None and session.remaining > 0)
         self.statusBar().showMessage(
@@ -180,7 +215,19 @@ class MainWindow(QMainWindow):
     def _clear_bouts(self) -> None:
         self.bout_list.clear()
         self.sampler.set_can_draw_more(False)
+        self.verdicts.setEnabled(False)
         self.player.show_message("Pick a label, a duration range, then Draw.")
+
+    def _mark_item(self, item: QListWidgetItem) -> None:
+        """Rated bouts get a dot in their verdict's colour."""
+        verdict = self.browser.verdict_for(item.data(Qt.ItemDataRole.UserRole))
+        text = item.text().lstrip(RATED_MARK + " ")
+        if verdict is None:
+            item.setText("  " + text)
+            item.setForeground(QColor(bc.WONG["black"]))
+        else:
+            item.setText(f"{RATED_MARK} {text}")
+            item.setForeground(QColor(bc.VERDICT_COLOURS[verdict.verdict]))
 
     def _move_bout(self, delta: int) -> None:
         row = self.bout_list.currentRow() + delta
@@ -233,16 +280,187 @@ class MainWindow(QMainWindow):
         bout = self.browser.bout(request.bout_id)
         stop = request.first_frame + request.n_frames
         pose = self.pose.load_slice(request.video, request.animal, request.first_frame, stop)
-        colour = self.browser.label_table().loc[str(bout["label"]), "colour"]
+        blind = self.browser.is_blind
+        colour = (
+            bc.BLIND_BOUT_COLOUR
+            if blind
+            else self.browser.label_table().loc[str(bout["label"]), "colour"]
+        )
         row = self.bout_list.currentRow() + 1
         info = (
             f"bout {row}/{self.bout_list.count()}  ·  {request.video}  ·  animal "
             f"{request.animal}  ·  frames {bout['start']}–{bout['stop'] - 1}  ·  "
             f"{bout['duration_s'] * 1000:.0f} ms"
         )
-        self.player.set_clip(
-            clip, pose, self.browser.project.skeleton, colour, self.browser.strips(request), info
+        strips = [] if blind else self.browser.strips(request)  # strips would give it away
+        self.player.set_clip(clip, pose, self.browser.project.skeleton, colour, strips, info)
+        self._refresh_verdict()
+
+    # ┌────────────────────────────────────────────────────────────┐
+    # │ Verdicts  « record, mark, reveal, advance »                │
+    # └────────────────────────────────────────────────────────────┘
+
+    def _current_bout_id(self) -> int | None:
+        item = self.bout_list.currentItem()
+        return None if item is None else int(item.data(Qt.ItemDataRole.UserRole))
+
+    def _refresh_verdict(self) -> None:
+        bout_id = self._current_bout_id()
+        if bout_id is None or self.browser.session_id is None:
+            return
+        progress = (
+            f"rated {self.browser.n_rated()} of {len(self.browser.drawn)}  ·  "
+            f"session {self.browser.session_id}  ·  {self.browser.annotator}"
         )
+        self.verdicts.show_bout(self.browser.verdict_for(bout_id), progress)
+
+    def _on_verdict(self, verdict: Verdict) -> None:
+        bout_id = self._current_bout_id()
+        if bout_id is None:
+            return
+        try:
+            self.browser.record(bout_id, verdict)
+        except AnnotationError as error:
+            QMessageBox.warning(self, "boutscope", str(error))
+            return
+        self._mark_item(self.bout_list.currentItem())
+        if self.browser.is_blind:
+            self._reveal(bout_id)
+        if (
+            self.verdicts.advance.isChecked()
+            and self.bout_list.currentRow() + 1 < self.bout_list.count()
+        ):
+            self._move_bout(1)
+        else:
+            self._refresh_verdict()
+
+    def _reveal(self, bout_id: int) -> None:
+        stored = self.browser.verdict_for(bout_id)
+        table = self.browser.label_table()
+        truth = str(self.browser.bout(bout_id)["label"])
+        answer = stored.blind_answer
+        answered = (
+            "none of these"
+            if answer == bc.BLIND_NONE
+            else table.loc[answer, "name"]
+            if answer
+            else bc.VERDICT_TEXT[stored.verdict]
+        )
+        mark = {"fits": "✔", "doesnt_fit": "✘"}.get(stored.verdict, "")
+        self.verdicts.show_reveal(
+            f"previous bout was <b>{table.loc[truth, 'name']}</b>; you said {answered} {mark}",
+            table.loc[truth, "colour"],
+        )
+
+    def _on_name(self, name: str, note: str) -> None:
+        if self.browser is None or self.browser.label is None or self.browser.is_blind:
+            return
+        try:
+            self.browser.propose_name(self.browser.label, name, note)
+        except AnnotationError as error:
+            QMessageBox.warning(self, "boutscope", str(error))
+            return
+        self.statusBar().showMessage(f"proposed name for {self.browser.label}: {name}", 5000)
+        self.verdicts.name.clear()
+        self.verdicts.name_note.clear()
+
+    # ┌────────────────────────────────────────────────────────────┐
+    # │ Sessions  « annotator, blind, resume, export »             │
+    # └────────────────────────────────────────────────────────────┘
+
+    def _resolve_annotator(self) -> str | None:
+        if self.annotator:
+            return self.annotator
+        saved = QSettings("boutscope", "boutscope").value(SETTINGS_ANNOTATOR, "")
+        self.annotator = saved or ask_annotator(self)
+        if self.annotator:
+            QSettings("boutscope", "boutscope").setValue(SETTINGS_ANNOTATOR, self.annotator)
+        return self.annotator
+
+    def change_annotator(self) -> None:
+        name = ask_annotator(self, self.annotator or "")
+        if not name or self.browser is None:
+            return
+        self.annotator = self.browser.annotator = name
+        QSettings("boutscope", "boutscope").setValue(SETTINGS_ANNOTATOR, name)
+        self.browser._reset_draw()  # a session belongs to one annotator
+        self._clear_bouts()
+        self._update_title()
+
+    def start_blind(
+        self, labels: tuple[str, ...], n: int, min_duration_s=None, max_duration_s=None
+    ) -> None:
+        settings = self.sampler.settings()
+        try:
+            batch = self.browser.draw_blind(
+                labels,
+                n,
+                min_duration_s=min_duration_s,
+                max_duration_s=max_duration_s,
+                strata=settings.strata,
+                seed=settings.seed,
+                max_per_animal=settings.max_per_animal,
+            )
+        except SamplingError as error:
+            QMessageBox.warning(self, "boutscope", str(error))
+            return
+        self._start_list(batch)
+
+    def resume_session(self, session_id: int) -> None:
+        try:
+            self.browser.resume(session_id)
+        except AnnotationError as error:
+            QMessageBox.warning(self, "boutscope", str(error))
+            return
+        browser = self.browser
+        self.labels.labelling_box.blockSignals(True)
+        self.labels.labelling_box.setCurrentText(browser.labelling)
+        self.labels.labelling_box.blockSignals(False)
+        self.labels.set_labels(browser.label_table())
+        if browser.label is not None:
+            counts, edges = browser.histogram()
+            self.histogram.set_histogram(
+                counts, edges, browser.label_table().loc[browser.label, "colour"]
+            )
+        first_open = next(
+            (i for i, b in enumerate(browser.drawn) if browser.verdict_for(b) is None),
+            len(browser.drawn) - 1,
+        )
+        self._start_list(list(browser.drawn), row=first_open)
+
+    def _blind_dialog(self) -> None:
+        if self.browser is None:
+            return
+        dialog = BlindDialog(self.browser.label_table(), self)
+        if dialog.exec():
+            s = dialog.settings()
+            self.start_blind(s.labels, s.n, s.min_duration_s, s.max_duration_s)
+
+    def _resume_dialog(self) -> None:
+        if self.store is None:
+            return
+        sessions = self.store.list_sessions()
+        if sessions.empty:
+            QMessageBox.information(self, "boutscope", "No stored sessions in this project yet.")
+            return
+        dialog = ResumeDialog(sessions, self)
+        if dialog.exec() and dialog.selected_id() is not None:
+            self.resume_session(dialog.selected_id())
+
+    def _export_dialog(self) -> None:
+        if self.store is None:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Export verdicts as CSV")
+        if folder:
+            paths = self.store.export_csv(Path(folder))
+            self.statusBar().showMessage(f"wrote {', '.join(p.name for p in paths)}", 8000)
+
+    def _update_title(self) -> None:
+        if self.browser is None:
+            return
+        mode = "  ·  BLIND" if self.browser.is_blind else ""
+        who = self.browser.annotator or "no annotator"
+        self.setWindowTitle(f"boutscope — {self.browser.project.name}  ·  {who}{mode}")
 
     # ┌────────────────────────────────────────────────────────────┐
     # │ Window  « layout, menu, shortcuts, close »                 │
@@ -258,7 +476,8 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.labels)
         splitter.addWidget(middle)
         splitter.addWidget(self.player)
-        splitter.setSizes([280, 380, 740])
+        splitter.addWidget(self.verdicts)
+        splitter.setSizes([260, 360, 760, 220])
         self.setCentralWidget(splitter)
 
     def _build_menu(self) -> None:
@@ -273,6 +492,16 @@ class MainWindow(QMainWindow):
                 action.setShortcut(keys)
             action.triggered.connect(slot)
             menu.addAction(action)
+        session = self.menuBar().addMenu("&Session")
+        for text, slot in (
+            ("New &blind session…", self._blind_dialog),
+            ("&Resume session…", self._resume_dialog),
+            ("&Export verdicts as CSV…", self._export_dialog),
+            ("Change &annotator…", self.change_annotator),
+        ):
+            action = QAction(text, self)
+            action.triggered.connect(slot)
+            session.addAction(action)
 
     def _build_shortcuts(self) -> None:
         for key, slot in (
@@ -286,6 +515,8 @@ class MainWindow(QMainWindow):
             ("-", lambda: self.player.change_speed(-1)),
         ):
             QShortcut(QKeySequence(key), self, activated=slot)
+        for key in VERDICT_KEYS:
+            QShortcut(QKeySequence(key), self, activated=lambda k=key: self.verdicts.press_key(k))
 
     def _open_dialog(self) -> None:
         try:
@@ -308,7 +539,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
         self.player.timer.stop()
+        self.current = None  # clips still loading are ignored when they arrive
         self.loader.shutdown()
+        if self.store is not None:
+            self.store.close()
         super().closeEvent(event)
 
 

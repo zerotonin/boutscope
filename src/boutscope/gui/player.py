@@ -186,6 +186,7 @@ class Player(QWidget):
         self.timer.stop()
         self.play_button.setText("Play")
         self.clip = None
+        self.info.setText("")  # never describe a bout that is not on screen
         self.view.show_message(text)
 
     def toggle_play(self) -> None:
