@@ -27,6 +27,44 @@ Workflow
    shows the bout and one strip per labelling for the same frames; hover
    for the labels, click or drag to seek.
 
+Rating bouts
+------------
+
+The first time you open a project, boutscope asks who is annotating; the
+name is stored with every verdict (*Session → Change annotator* switches
+it).  Every **Draw** is stored as a session in ``boutscope.sqlite`` inside
+the project, with its full draw order.
+
+For each bout give one verdict:
+
+========  ==============  ==================================================
+key       verdict         when
+========  ==============  ==================================================
+1         fits            the bout is what the label stands for
+2         doesn't fit     it is something else (say what in *looks like*)
+3         artefact        a tracking or labelling failure, not behaviour
+4         unsure          cannot tell
+========  ==============  ==================================================
+
+A note is optional.  Rated bouts get a coloured dot in the list; with
+*next bout after a verdict* ticked the viewer moves on by itself.  Below
+the verdicts you can propose a **name for the label**; every proposal is
+kept, the latest per annotator counts.
+
+**Blind sessions** (*Session → New blind session*) mix bouts of two or
+more labels in equal shares.  The label colour and the strips are hidden;
+answer with the label you think it is (keys 1–9), **0** for *none of
+these*, **A** for artefact, **U** for unsure.  The true label is shown
+after you answer.
+
+*Session → Resume session* reopens any stored session at its first
+unrated bout; "More" then continues the same order.  A session whose
+labelling has changed since (different content hash) cannot be resumed,
+because its bout ids would point at other bouts.
+
+*Session → Export verdicts as CSV* writes ``verdicts.csv``,
+``sessions.csv`` and ``label_names.csv``.
+
 Keys
 ----
 
@@ -36,6 +74,7 @@ Space       play / pause
 N / B       next / previous bout
 L           loop on / off
 \+ / −      faster / slower
+1–4         verdict (blind: 1–9 answer, 0 none, A, U)
 ==========  ==================================
 
 Clips are read in a background thread and the next two bouts are

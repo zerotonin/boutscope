@@ -19,6 +19,12 @@ boutscope.sampling
 .. automodule:: boutscope.sampling
    :members:
 
+boutscope.annotations
+---------------------
+
+.. automodule:: boutscope.annotations
+   :members:
+
 boutscope.browser
 -----------------
 
