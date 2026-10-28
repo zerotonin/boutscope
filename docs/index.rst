@@ -13,16 +13,17 @@ estimates how often each label is right, with a confidence interval.
 
 .. note::
 
-   Version 0.3 contains the project format, the generic adapter, the
-   bout index, the sampler, the viewer and annotation (verdicts,
-   resumable sessions, blind mode).  Precision reports and the
-   keypoint-MoSeq and TadPose adapters follow.
+   Version 0.4 contains the project format, the bout index, the
+   sampler, the viewer, annotation (verdicts, resumable sessions, blind
+   mode) and adapters for generic tables, TadPose SLEAP and
+   keypoint-MoSeq.  Precision reports follow.
 
 .. toctree::
    :maxdepth: 2
 
    install
    gui
+   adapters
    project_format
    cli
    api

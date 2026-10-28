@@ -29,7 +29,7 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
-autodoc_mock_imports = ["cv2", "PySide6", "pyqtgraph"]
+autodoc_mock_imports = ["cv2", "PySide6", "pyqtgraph", "h5py"]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

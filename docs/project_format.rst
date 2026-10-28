@@ -12,6 +12,7 @@ This page is the contract.
     ├── labels/<labelling>.parquet      one row per labelled frame
     ├── labels/<labelling>.meta.toml    name and colour per label
     ├── bouts/<labelling>.parquet       bout index, written at import
+    ├── framemap/<video>.npy            optional: video frame of every project frame
     └── pose/<video>/                   optional keypoints (coords.npy, conf.npy, meta.toml)
 
 A project holds one or more *labellings* of the same frames, e.g. two
@@ -31,8 +32,8 @@ Column              Required  Meaning
 ``frame``           yes       Integer time index on a uniform grid at the
                               project fps.  Bouts need consecutive values.
 ``label``           yes       The categoriser's output (stored as text).
-``video_frame``     no        Frame index in the video file, when it is not
-                              ``frame + frame_offset`` (e.g. dropped frames).
+``video_frame``     no        Frame index in the video file, when neither a
+                              frame map nor ``frame + frame_offset`` gives it.
 ``typicality``      no        Higher = more typical of its label (e.g. minus
                               the distance to a k-means centre).  Enables the
                               typical / atypical sampling modes.
@@ -75,6 +76,30 @@ videos.toml
     y = 40
     w = 110
     h = 110
+
+Frame maps
+----------
+
+``framemap/<video>.npy`` (int64) holds the video frame of every project
+frame 0…N−1, −1 where the video has none (a camera-dropped frame).  It
+belongs to the video, so every labelling uses it; a clip reads the exact
+video frames of its project frames and repeats the previous frame where
+one was dropped.  Write it with :func:`boutscope.project.write_frame_map`.
+
+The video frame of a project frame comes from, in this order: the label
+table's ``video_frame`` column, the frame map, ``frame + frame_offset``.
+
+Per-video strata
+----------------
+
+A video entry may carry stratum values::
+
+    [videos.plate1.strata]
+    condition = "PTZ"
+    plate = "ptz2"
+
+A label table without a stratum column takes the value of its video, so
+labellings from other tools (e.g. keypoint-MoSeq) need not repeat them.
 
 Label meta
 ----------

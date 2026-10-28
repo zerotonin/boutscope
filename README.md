@@ -14,9 +14,9 @@ duration range you choose, plays them in the original video, and records
 your verdict on each bout. From the verdicts it estimates how often each
 label is right, with a confidence interval.
 
-> **Status: 0.3.** Project format, generic adapter, bout index, sampler,
-> viewer and annotation (verdicts, resumable sessions, blind mode) work.
-> Precision reports and the adapters for keypoint-MoSeq and TadPose follow.
+> **Status: 0.4.** Project format, bout index, sampler, viewer, annotation
+> (verdicts, resumable sessions, blind mode) and adapters for generic
+> tables, TadPose SLEAP and keypoint-MoSeq work. Precision reports follow.
 
 ## Install
 

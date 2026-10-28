@@ -55,6 +55,24 @@ boutscope.adapters.generic
 .. automodule:: boutscope.adapters.generic
    :members:
 
+boutscope.adapters.tadpose_sleap
+--------------------------------
+
+.. automodule:: boutscope.adapters.tadpose_sleap
+   :members:
+
+boutscope.adapters.keypoint_moseq
+---------------------------------
+
+.. automodule:: boutscope.adapters.keypoint_moseq
+   :members:
+
+boutscope.checks
+----------------
+
+.. automodule:: boutscope.checks
+   :members:
+
 boutscope.config
 ----------------
 
