@@ -33,8 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not hasattr(args, "run"):
-        parser.print_help()
-        return 0
+        return run_gui(argparse.Namespace(project=None, video_root=None))
     try:
         args.run(args)
     except (ProjectError, SamplingError) as error:
@@ -85,7 +84,32 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--max-per-animal", type=int)
     sample.add_argument("-n", type=int, default=20, help="bouts to print")
     sample.set_defaults(run=run_sample)
+
+    gui = commands.add_parser("gui", help="open the viewer (the default without a command)")
+    gui.add_argument("project", type=Path, nargs="?")
+    gui.add_argument("--video-root", type=Path, help="overrides video_root from local_paths.json")
+    gui.set_defaults(run=run_gui)
+
+    demo = commands.add_parser("demo", help="build a small synthetic project with videos")
+    demo.add_argument("folder", type=Path)
+    demo.add_argument("--open", action="store_true", help="open it in the viewer")
+    demo.set_defaults(run=run_demo)
     return parser
+
+
+def run_gui(args: argparse.Namespace) -> int:
+    from boutscope.gui.app import main as gui_main
+
+    return gui_main(args.project, args.video_root)
+
+
+def run_demo(args: argparse.Namespace) -> None:
+    from boutscope.synthetic import make_demo_project
+
+    project = make_demo_project(args.folder)
+    print(f"demo project -> {project.root}")
+    if args.open:
+        run_gui(argparse.Namespace(project=project.root, video_root=None))
 
 
 def run_import_generic(args: argparse.Namespace) -> None:

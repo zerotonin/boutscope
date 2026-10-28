@@ -17,7 +17,7 @@ keywords = [
     "keypoint-moseq", "clustering", "video",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -35,12 +35,15 @@ dependencies = [
     "tomli >= 2.0; python_version < '3.11'",
     "tomli-w >= 1.0",
     "opencv-python-headless >= 4.8",
+    "PySide6 >= 6.6",
+    "pyqtgraph >= 0.13.4",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest >= 7.0",
     "pytest-cov >= 4.0",
+    "pytest-qt >= 4.4",
     "ruff >= 0.4",
 ]
 
@@ -58,6 +61,7 @@ fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+qt_api = "pyside6"
 
 [tool.ruff]
 line-length = 100
