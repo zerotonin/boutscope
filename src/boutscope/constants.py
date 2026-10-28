@@ -99,3 +99,23 @@ CONTEXT_COLOUR: str = "#999999"
 MISSING_LABEL_COLOUR: str = "#FFFFFF"
 KEYPOINT_COLOUR: str = WONG["yellow"]
 SKELETON_COLOUR: str = WONG["sky_blue"]
+
+# ┌────────────────────────────────────────────────────────────┐
+# │ Annotation  « verdicts and the SQLite store »              │
+# └────────────────────────────────────────────────────────────┘
+DB_SCHEMA_VERSION: int = 1
+VERDICTS: tuple[str, ...] = ("fits", "doesnt_fit", "artefact", "unsure")
+VERDICT_TEXT: dict[str, str] = {
+    "fits": "fits",
+    "doesnt_fit": "doesn't fit",
+    "artefact": "artefact",
+    "unsure": "unsure",
+}
+VERDICT_COLOURS: dict[str, str] = {
+    "fits": WONG["bluish_green"],
+    "doesnt_fit": WONG["vermilion"],
+    "artefact": WONG["reddish_purple"],
+    "unsure": WONG["yellow"],
+}
+BLIND_NONE: str = "__none__"  # blind answer "none of these"
+BLIND_BOUT_COLOUR: str = WONG["blue"]  # neutral border in blind mode (label colours would tell)
