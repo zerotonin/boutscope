@@ -74,3 +74,28 @@ LABEL_COLOUR_CYCLE: tuple[str, ...] = tuple(c for k, c in WONG.items() if k != "
 # │ Type aliases  « shared array shapes »                      │
 # └────────────────────────────────────────────────────────────┘
 BoutIds: TypeAlias = np.ndarray  # int64 bout ids in draw order
+
+# ┌────────────────────────────────────────────────────────────┐
+# │ Video  « clip reading and playback »                       │
+# └────────────────────────────────────────────────────────────┘
+MAX_CLIP_BYTES: int = 512 * 2**20  # decoded frames per clip; larger clips are downscaled
+MAX_CLIP_S: float = 30.0  # longer bouts are shown from their start, truncated
+SEEK_BACKOFF_FRAMES: int = 250  # re-seek this far back when a direct seek lands wrong
+PLAYBACK_SPEEDS: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0, 2.0)
+DEFAULT_SPEED: float = 0.25
+PREFETCH_CLIPS: int = 2
+
+# ┌────────────────────────────────────────────────────────────┐
+# │ Pose  « keypoint arrays per video »                        │
+# └────────────────────────────────────────────────────────────┘
+POSE_COORDS_FILE: str = "coords.npy"  # (animals, frames, keypoints, 2), video pixels
+POSE_CONF_FILE: str = "conf.npy"  # (animals, frames, keypoints)
+POSE_META_FILE: str = "meta.toml"  # animals (row order), frame0 (project frame of row 0)
+
+# ┌────────────────────────────────────────────────────────────┐
+# │ Viewer colours  « context vs bout, missing labels »        │
+# └────────────────────────────────────────────────────────────┘
+CONTEXT_COLOUR: str = "#999999"
+MISSING_LABEL_COLOUR: str = "#FFFFFF"
+KEYPOINT_COLOUR: str = WONG["yellow"]
+SKELETON_COLOUR: str = WONG["sky_blue"]
