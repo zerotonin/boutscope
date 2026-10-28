@@ -26,7 +26,7 @@ def demo(tmp_path_factory):
 
 @pytest.fixture
 def window(qtbot, demo):
-    window = MainWindow(demo)
+    window = MainWindow(demo, annotator="tester")
     qtbot.addWidget(window)
     yield window
     window.close()
@@ -105,7 +105,7 @@ def test_missing_video_is_reported(qtbot, demo, tmp_path):
         for k, v in project.videos.items()
     }
     bp.save_videos(moved, copy / "videos.toml")
-    window = MainWindow(bp.load_project(copy))
+    window = MainWindow(bp.load_project(copy), annotator="tester")
     qtbot.addWidget(window)
     window.sampler.draw_button.click()
     qtbot.waitUntil(lambda: "Cannot show" in window.player.view.message, timeout=TIMEOUT_MS)
@@ -122,3 +122,85 @@ def test_range_selection_limits_draw(qtbot, window):
     window.sampler.draw_button.click()
     drawn = [window.browser.bout(i)["duration_s"] for i in window.browser.drawn]
     assert drawn and min(drawn) >= cut - 1e-9
+
+
+def test_verdict_keys_record_mark_and_advance(qtbot, window):
+    window.sampler.n.setValue(3)
+    window.sampler.draw_button.click()
+    _wait_for_clip(qtbot, window)
+    first = window._current_bout_id()
+    window.verdicts.note.setText("clean")
+    window.verdicts.press_key("1")
+    assert window.browser.verdict_for(first).verdict == "fits"
+    assert window.browser.verdict_for(first).note == "clean"
+    assert window.bout_list.currentRow() == 1  # advanced
+    assert window.bout_list.item(0).text().startswith("●")
+    window.verdicts.advance.setChecked(False)
+    window.verdicts.press_key("3")
+    second = window._current_bout_id()
+    assert window.browser.verdict_for(second).verdict == "artefact"
+    assert window.bout_list.currentRow() == 1  # stayed
+    assert "rated 2 of 3" in window.verdicts.progress.text()
+
+
+def test_propose_name(qtbot, window):
+    window.sampler.draw_button.click()
+    _wait_for_clip(qtbot, window)  # the panel is enabled once a bout is on screen
+    window.verdicts.name.setText("forward glide")
+    window.verdicts.propose.click()
+    names = window.store.label_names(window.browser.labelling)
+    assert names.name.tolist() == ["forward glide"]
+    assert names.annotator.tolist() == ["tester"]
+
+
+def test_blind_session_hides_and_reveals(qtbot, window):
+    labels = tuple(window.browser.label_table().index[:2])
+    window.start_blind(labels, 4)
+    assert window.browser.is_blind and "BLIND" in window.windowTitle()
+    clip = _wait_for_clip(qtbot, window)
+    assert clip is not None
+    assert window.player.timeline.strips == []  # no strips in blind mode
+    assert window.player.bout_colour == "#0072B2"  # neutral, not the label's colour
+    assert not window.verdicts.name_box.isVisible()
+    bout = window._current_bout_id()
+    truth = str(window.browser.bout(bout)["label"])
+    window.verdicts.press_key(str(labels.index(truth) + 1))
+    assert window.browser.verdict_for(bout).verdict == "fits"
+    assert "previous bout was" in window.verdicts.reveal.text()
+
+
+def test_resume_continues_the_session(qtbot, window, demo):
+    window.sampler.n.setValue(3)
+    window.sampler.draw_button.click()
+    _wait_for_clip(qtbot, window)
+    window.verdicts.press_key("2")
+    session_id, drawn = window.browser.session_id, list(window.browser.drawn)
+    other = MainWindow(demo, annotator="tester")
+    qtbot.addWidget(other)
+    other.resume_session(session_id)
+    assert other.browser.drawn == drawn
+    assert other.bout_list.count() == 3 and other.bout_list.currentRow() == 1  # first unrated
+    assert other.bout_list.item(0).text().startswith("●")
+    other.close()
+
+
+def test_dialogs_without_showing_them(qtbot, window):
+    from PySide6.QtCore import Qt
+
+    from boutscope.gui.dialogs import BlindDialog, ResumeDialog
+
+    dialog = BlindDialog(window.browser.label_table())
+    qtbot.addWidget(dialog)
+    dialog._accept_if_valid()
+    assert "at least two" in dialog.hint.text()
+    for row in (0, 1):
+        dialog.list.item(row).setCheckState(Qt.CheckState.Checked)
+    dialog.min_ms.setValue(40)
+    settings = dialog.settings()
+    assert len(settings.labels) == 2 and settings.min_duration_s == 0.04
+    assert settings.max_duration_s is None
+
+    window.sampler.draw_button.click()
+    resume = ResumeDialog(window.store.list_sessions())
+    qtbot.addWidget(resume)
+    assert resume.selected_id() == window.browser.session_id
