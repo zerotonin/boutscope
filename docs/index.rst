@@ -13,14 +13,15 @@ estimates how often each label is right, with a confidence interval.
 
 .. note::
 
-   Version 0.1 contains the core: the project format, the generic
-   adapter, the bout index and the sampler, usable from the command line.
-   The viewer and the annotation GUI follow.
+   Version 0.2 contains the project format, the generic adapter, the
+   bout index, the sampler and the viewer.  Annotation (verdicts,
+   sessions, blind mode) follows.
 
 .. toctree::
    :maxdepth: 2
 
    install
+   gui
    project_format
    cli
    api

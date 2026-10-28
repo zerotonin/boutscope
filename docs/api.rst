@@ -19,6 +19,30 @@ boutscope.sampling
 .. automodule:: boutscope.sampling
    :members:
 
+boutscope.browser
+-----------------
+
+.. automodule:: boutscope.browser
+   :members:
+
+boutscope.video
+---------------
+
+.. automodule:: boutscope.video
+   :members:
+
+boutscope.pose
+--------------
+
+.. automodule:: boutscope.pose
+   :members:
+
+boutscope.strips
+----------------
+
+.. automodule:: boutscope.strips
+   :members:
+
 boutscope.adapters.generic
 --------------------------
 

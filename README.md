@@ -14,9 +14,9 @@ duration range you choose, plays them in the original video, and records
 your verdict on each bout. From the verdicts it estimates how often each
 label is right, with a confidence interval.
 
-> **Status: 0.1, core only.** The project format, the generic adapter, the
-> bout index and the sampler work from the command line. The viewer, the
-> annotation GUI and the adapters for keypoint-MoSeq and TadPose follow.
+> **Status: 0.2.** Project format, generic adapter, bout index, sampler and
+> the viewer work. Annotation (verdicts, sessions, blind mode) and the
+> adapters for keypoint-MoSeq and TadPose follow.
 
 ## Install
 
@@ -40,10 +40,13 @@ label is right, with a confidence interval.
 ## Quick start
 
 ```bash
+boutscope demo /tmp/bs_demo --open      # synthetic project, opens the viewer
+
 # one row per labelled frame: video, animal, frame, label (+ optional columns)
 boutscope import generic labels.csv myproject --labelling km36 --fps 50
 boutscope info myproject --labelling km36
 boutscope sample myproject --labelling km36 --label 7 --min-duration 0.1 -n 20
+boutscope gui myproject
 ```
 
 The project format is documented in [docs/project_format.rst](docs/project_format.rst).

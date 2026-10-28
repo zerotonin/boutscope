@@ -12,7 +12,7 @@ This page is the contract.
     ├── labels/<labelling>.parquet      one row per labelled frame
     ├── labels/<labelling>.meta.toml    name and colour per label
     ├── bouts/<labelling>.parquet       bout index, written at import
-    └── pose/<video>.npz                optional keypoints (later versions)
+    └── pose/<video>/                   optional keypoints (coords.npy, conf.npy, meta.toml)
 
 A project holds one or more *labellings* of the same frames, e.g. two
 k-means runs and a keypoint-MoSeq model.
@@ -113,6 +113,22 @@ project.toml
     keypoints = ["left_eye", "right_eye", "centre", "tail1"]
     edges = [["centre", "tail1"]]
     min_confidence = 0.2
+
+Pose
+----
+
+Optional, per video, for the skeleton overlay::
+
+    pose/<video>/coords.npy    float32 (animals, frames, keypoints, 2), video pixels
+    pose/<video>/conf.npy      float32 (animals, frames, keypoints)
+    pose/<video>/meta.toml     animals = [...] (row order), frame0 = <project frame of row 0>
+
+Keypoints follow the order of ``[skeleton] keypoints`` in ``project.toml``.
+Frames are on the project ``frame`` grid.  Set the confidence of anything
+the tracker did not observe (interpolated, filled in) below
+``min_confidence`` and it will not be drawn.  ``.npy`` rather than
+``.npz`` so the arrays are memory-mapped.  Write them with
+:func:`boutscope.pose.write_pose`.
 
 Sampling
 --------

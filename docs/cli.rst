@@ -1,6 +1,14 @@
 Command line
 ============
 
+Open the viewer (also the default without a command)::
+
+    boutscope gui myproject
+
+Build a small synthetic project with videos and pose::
+
+    boutscope demo /tmp/bs_demo --open
+
 Import a label table (CSV, TSV or Parquet) into a new or existing project::
 
     boutscope import generic labels.csv myproject --labelling km36 --fps 50 \
