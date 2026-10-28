@@ -137,3 +137,134 @@ def _runs_of(
         if f < len(labels) and present[f] and start is None:
             start = f
     return pd.DataFrame(runs, columns=["video", "animal", "label", "start", "stop"])
+
+
+# ┌────────────────────────────────────────────────────────────┐
+# │ Demo project  « a viewable project in a few seconds »      │
+# └────────────────────────────────────────────────────────────┘
+
+
+@dataclass(frozen=True)
+class DemoSpec:
+    labels: SyntheticSpec = SyntheticSpec(n_videos=2, n_animals=4, n_frames=1500, seed=1)
+    fps: float = 50.0
+    box_px: int = 150
+    flip_share: float = 0.15  # second labelling: this share of frames relabelled at random
+    low_conf_share: float = 0.05  # keypoints below the overlay threshold
+
+
+def make_demo_project(root: Path, spec: DemoSpec = DemoSpec()):
+    """Project with two labellings, videos of moving three-point animals, and their pose.
+
+    The animals rest, swim or turn according to the ``behaviour`` labelling;
+    ``noisy`` is the same labelling with frames relabelled at random.  Video
+    paths are absolute, so the demo needs no ``video_root``.
+    """
+    from boutscope import pose as bpose
+    from boutscope import project as bp
+
+    root = Path(root)
+    table, _ = make_label_table(spec.labels)
+    rng = np.random.default_rng(spec.labels.seed)
+    n = spec.labels.n_animals
+    cols, rows = 2, (n + 1) // 2
+    width = max(cols * spec.box_px, BLOCK_BITS * BLOCK_PX)
+    height = 2 * BLOCK_PX + rows * spec.box_px
+    skeleton = bp.Skeleton(
+        keypoints=("head", "centre", "tail"),
+        edges=(("head", "centre"), ("centre", "tail")),
+        min_confidence=0.3,
+    )
+    videos, poses = {}, {}
+    (root / "videos").mkdir(parents=True, exist_ok=True)
+    for video, group in table.groupby("video", sort=True):
+        animals = sorted(group["animal"].unique())
+        boxes = {
+            a: bp.AnimalBox(
+                x=(i % cols) * spec.box_px,
+                y=2 * BLOCK_PX + (i // cols) * spec.box_px,
+                w=spec.box_px,
+                h=spec.box_px,
+            )
+            for i, a in enumerate(animals)
+        }
+        coords = np.stack(
+            [_animate(group[group["animal"] == a], boxes[a], spec, rng) for a in animals]
+        )
+        conf = rng.uniform(0.5, 1.0, coords.shape[:3]).astype(np.float32)
+        conf[rng.random(conf.shape) < spec.low_conf_share] = 0.1
+        path = root / "videos" / f"{video}.avi"
+        _write_demo_video(path, coords, conf, skeleton, (width, height), spec.fps)
+        videos[video] = bp.VideoEntry(
+            path=str(path.resolve()), fps=spec.fps, width=width, height=height, boxes=boxes
+        )
+        poses[video] = (coords, conf, animals)
+    project = bp.create_project(
+        root / "project",
+        "demo",
+        spec.fps,
+        "synthetic",
+        videos,
+        strata=("condition",),
+        skeleton=skeleton,
+    )
+    for video, (coords, conf, animals) in poses.items():
+        bpose.write_pose(project, video, coords, conf, animals)
+    meta = {
+        "rest": bp.LabelMeta("rest", "#000000"),
+        "swim": bp.LabelMeta("swim", "#009E73"),
+        "turn": bp.LabelMeta("turn", "#CC79A7"),
+    }
+    project = bp.add_labelling(project, "behaviour", table, meta)
+    noisy = table.copy()
+    flip = rng.random(len(noisy)) < spec.flip_share
+    noisy.loc[flip, "label"] = rng.choice(spec.labels.labels, int(flip.sum()))
+    return bp.add_labelling(project, "noisy", noisy, meta)
+
+
+def _animate(track: pd.DataFrame, box, spec: DemoSpec, rng: np.random.Generator) -> np.ndarray:
+    """(frames, 3 keypoints, 2) for one animal; missing frames keep the last behaviour."""
+    labels = (
+        pd.Series(track["label"].to_numpy(), index=track["frame"].to_numpy())
+        .reindex(range(spec.labels.n_frames))
+        .ffill()
+        .bfill()
+        .to_numpy()
+    )
+    margin = 20.0
+    pos = np.array([box.x + box.w / 2, box.y + box.h / 2], dtype=float)
+    heading = float(rng.uniform(0, 2 * np.pi))
+    out = np.empty((len(labels), 3, 2), dtype=np.float32)
+    for f, label in enumerate(labels):
+        if label == "swim":
+            step = 1.5 * np.array([np.cos(heading), np.sin(heading)])
+            nxt = pos + step
+            if not (box.x + margin < nxt[0] < box.x + box.w - margin):
+                heading = np.pi - heading
+            if not (box.y + margin < nxt[1] < box.y + box.h - margin):
+                heading = -heading
+            pos = pos + 1.5 * np.array([np.cos(heading), np.sin(heading)])
+        elif label == "turn":
+            heading += 0.15
+        axis = np.array([np.cos(heading), np.sin(heading)])
+        out[f] = [pos + 8 * axis, pos, pos - 14 * axis]
+    return out
+
+
+def _write_demo_video(path: Path, coords, conf, skeleton, size, fps: float) -> None:
+    import cv2
+
+    width, height = size
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), fps, (width, height))
+    try:
+        for f in range(coords.shape[1]):
+            frame = encode_frame_index(f, width, height)
+            frame[2 * BLOCK_PX :] = 200
+            for animal in coords[:, f]:
+                pts = [tuple(int(round(v)) for v in p) for p in animal]
+                cv2.line(frame, pts[0], pts[1], (40, 40, 40), 3)
+                cv2.line(frame, pts[1], pts[2], (40, 40, 40), 2)
+                cv2.circle(frame, pts[0], 4, (20, 20, 20), -1)
+            writer.write(frame)
+    finally:
+        writer.release()
