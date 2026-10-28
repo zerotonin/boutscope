@@ -67,6 +67,50 @@ def build_parser() -> argparse.ArgumentParser:
     generic.add_argument("--overwrite", action="store_true", help="replace an existing labelling")
     generic.set_defaults(run=run_import_generic)
 
+    tadpose = adapters.add_parser("tadpose-sleap", help="TadPose SLEAP feature bundle")
+    tadpose.add_argument("bundle", type=Path, help="folder with rows.parquet")
+    tadpose.add_argument("project", type=Path, help="new project folder")
+    tadpose.add_argument(
+        "--labels",
+        action="append",
+        required=True,
+        metavar="NAME=NPY",
+        help="a labelling: name and label array (repeatable)",
+    )
+    tadpose.add_argument(
+        "--catalogue",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help="PM catalogue with names and colours for a labelling",
+    )
+    tadpose.add_argument(
+        "--crop-csv",
+        type=Path,
+        required=True,
+        help="video,x,y,w,h of the SLEAP crop in the raw video",
+    )
+    tadpose.add_argument("--animals", type=Path, help="animals.csv (recording, animal)")
+    tadpose.add_argument("--video-strata", type=Path, help="CSV: video + stratum columns")
+    tadpose.add_argument("--pose-dir", type=Path, help="MoSeq export npz per video")
+    tadpose.add_argument("--fps", type=float, default=50.0)
+    tadpose.add_argument("--box-px", type=int, default=140)
+    tadpose.add_argument("--name", help="project name (default: folder name)")
+    tadpose.set_defaults(run=run_import_tadpose)
+
+    kpms = adapters.add_parser("keypoint-moseq", help="kpms results.h5 into an existing project")
+    kpms.add_argument("results", type=Path, help="results.h5")
+    kpms.add_argument("project", type=Path)
+    kpms.add_argument(
+        "--recording-map",
+        type=Path,
+        required=True,
+        help="CSV: recording, video, animal, first_frame",
+    )
+    kpms.add_argument("--labelling", default="moseq")
+    kpms.add_argument("--overwrite", action="store_true")
+    kpms.set_defaults(run=run_import_kpms)
+
     info = commands.add_parser("info", help="labellings, labels and bout counts of a project")
     info.add_argument("project", type=Path)
     info.add_argument("--labelling", help="show the label summary of one labelling")
@@ -84,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--max-per-animal", type=int)
     sample.add_argument("-n", type=int, default=20, help="bouts to print")
     sample.set_defaults(run=run_sample)
+
+    check = commands.add_parser("check", help="exact seeking and pose alignment on real videos")
+    check.add_argument("project", type=Path)
+    check.add_argument("--labelling", help="labelling whose bouts test the alignment")
+    check.add_argument("--video-root", type=Path)
+    check.add_argument("--videos", type=int, default=1, help="videos to test seeking on")
+    check.set_defaults(run=run_check)
 
     gui = commands.add_parser("gui", help="open the viewer (the default without a command)")
     gui.add_argument("project", type=Path, nargs="?")
@@ -135,6 +186,73 @@ def run_import_generic(args: argparse.Namespace) -> None:
         f"{args.labelling}: {info.n_frames} frames, {info.n_labels} labels, {info.n_bouts} bouts "
         f"-> {project.root}"
     )
+
+
+def run_import_tadpose(args: argparse.Namespace) -> None:
+    from boutscope.adapters.tadpose_sleap import TadPoseImport, import_tadpose_sleap
+
+    project = import_tadpose_sleap(
+        TadPoseImport(
+            bundle_dir=args.bundle,
+            labellings=_pairs(args.labels),
+            crop_csv=args.crop_csv,
+            project_root=args.project,
+            catalogues=_pairs(args.catalogue),
+            animals_csv=args.animals,
+            video_strata_csv=args.video_strata,
+            pose_dir=args.pose_dir,
+            fps=args.fps,
+            box_px=args.box_px,
+            name=args.name,
+        )
+    )
+    for name, info in project.labellings.items():
+        print(f"{name}: {info.n_frames} frames, {info.n_labels} labels, {info.n_bouts} bouts")
+    print(f"-> {project.root}")
+
+
+def run_import_kpms(args: argparse.Namespace) -> None:
+    from boutscope.adapters.keypoint_moseq import KpmsImport, import_keypoint_moseq
+
+    project = import_keypoint_moseq(
+        KpmsImport(
+            results_h5=args.results,
+            recording_map=args.recording_map,
+            project_root=args.project,
+            labelling=args.labelling,
+            overwrite=args.overwrite,
+        )
+    )
+    info = project.labellings[args.labelling]
+    print(
+        f"{args.labelling}: {info.n_frames} frames, {info.n_labels} syllables, "
+        f"{info.n_bouts} bouts -> {project.root}"
+    )
+
+
+def _pairs(items: list[str]) -> dict[str, Path]:
+    pairs = {}
+    for item in items:
+        name, sep, path = item.partition("=")
+        if not sep or not name or not path:
+            raise ProjectError(f"expected NAME=PATH, got {item!r}")
+        pairs[name] = Path(path)
+    return pairs
+
+
+def run_check(args: argparse.Namespace) -> None:
+    from boutscope.checks import check_alignment, check_seeking, format_alignment
+    from boutscope.video import resolve_video_path
+
+    project = load_project(args.project)
+    for video in list(project.videos)[: args.videos]:
+        report = check_seeking(resolve_video_path(project, video, args.video_root))
+        state = "exact" if not report.wrong else f"WRONG at {report.wrong[:5]}"
+        print(f"seeking {report.video}: {report.n_seeks} seeks, {state}")
+    if args.labelling:
+        print(
+            format_alignment(check_alignment(project, args.labelling, video_root=args.video_root))
+        )
 
 
 def run_info(args: argparse.Namespace) -> None:

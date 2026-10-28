@@ -92,3 +92,16 @@ def test_browser_needs_a_label(demo):
     browser.select_labelling("noisy")
     with pytest.raises(RuntimeError, match="draw"):
         browser.more(1)
+
+
+def test_checks_on_the_demo(demo, capsys):
+    from boutscope.checks import check_alignment, check_seeking
+    from boutscope.cli import main
+    from boutscope.video import resolve_video_path
+
+    report = check_seeking(resolve_video_path(demo, "video0"), n_seeks=10, span=300)
+    assert report.n_seeks > 5 and report.wrong == []
+    alignment = check_alignment(demo, "behaviour", n_bouts=10)
+    assert alignment.best_shift == 0 and alignment.n_bouts > 0
+    assert main(["check", str(demo.root), "--labelling", "behaviour"]) == 0
+    assert "aligned" in capsys.readouterr().out

@@ -40,7 +40,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+kpms = [
+    "h5py >= 3.8",
+]
 dev = [
+    "h5py >= 3.8",
     "pytest >= 7.0",
     "pytest-cov >= 4.0",
     "pytest-qt >= 4.4",
