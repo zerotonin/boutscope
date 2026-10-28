@@ -104,7 +104,7 @@ SKELETON_COLOUR: str = WONG["sky_blue"]
 # ┌────────────────────────────────────────────────────────────┐
 # │ Annotation  « verdicts and the SQLite store »              │
 # └────────────────────────────────────────────────────────────┘
-DB_SCHEMA_VERSION: int = 1
+DB_SCHEMA_VERSION: int = 2  # 2: sessions store a hash of the draw order, not the order
 VERDICTS: tuple[str, ...] = ("fits", "doesnt_fit", "artefact", "unsure")
 VERDICT_TEXT: dict[str, str] = {
     "fits": "fits",

@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from boutscope import constants as bc
-from boutscope.annotations import AnnotationError, AnnotationStore, Verdict
+from boutscope.annotations import AnnotationError, AnnotationStore, Verdict, hash_order
 from boutscope.browser import Browser, judge_blind_answer
 from boutscope.sampling import SampleRequest, SamplingError, build_blind_order
 
@@ -40,7 +40,7 @@ def test_session_round_trip(store):
     store.set_position(sid, 2)
     record = store.load_session(sid)
     assert record.request == request and record.annotator == "bart"
-    np.testing.assert_array_equal(record.order, order)
+    assert record.order_hash == hash_order(order) and record.n_available == 3
     assert (record.position, record.blind, record.label_set) == (2, False, None)
     sessions = store.list_sessions()
     assert sessions.loc[0, "drawn"] == 2 and sessions.loc[0, "available"] == 3
@@ -152,3 +152,23 @@ def test_record_needs_a_stored_session(project):
     with pytest.raises(AnnotationError, match="no stored session"):
         browser.record(bout, Verdict("fits"))
     assert browser.verdict_for(bout) is None
+
+
+def test_resume_rebuilds_and_checks_the_order(browser, store, project):
+    browser.select_label("turn")
+    browser.draw(2, seed=11)
+    db = sqlite3.connect(store.path)
+    with db:
+        db.execute(
+            "UPDATE sessions SET order_hash = 'tampered' WHERE id = ?", (browser.session_id,)
+        )
+    db.close()
+    with pytest.raises(AnnotationError, match="differs"):
+        Browser(project, store=store, annotator="bart").resume(browser.session_id)
+
+
+def test_blind_session_resumes(browser, store, project):
+    drawn = browser.draw_blind(("rest", "swim"), 3, seed=4)
+    again = Browser(project, store=store, annotator="bart")
+    again.resume(browser.session_id)
+    assert again.is_blind and again.drawn == drawn

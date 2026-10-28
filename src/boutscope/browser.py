@@ -21,13 +21,14 @@ import numpy as np
 import pandas as pd
 
 from boutscope import constants as bc
-from boutscope.annotations import AnnotationError, AnnotationStore, Verdict
+from boutscope.annotations import AnnotationError, AnnotationStore, Verdict, hash_order
 from boutscope.bouts import compute_duration_histogram, summarise_labels
 from boutscope.project import Project
 from boutscope.sampling import (
     SampleRequest,
     Session,
     build_blind_order,
+    build_draw_order,
     count_by_stratum,
     select_candidates,
     start_session,
@@ -239,8 +240,17 @@ class Browser:
         if not record.blind:
             self.label = record.request.label
         self.request = record.request
-        shown = [int(b) for b in record.order[: record.position]]
-        self.session = Session(record.request, record.order, record.position, list(shown))
+        order = (
+            build_blind_order(self.bouts, record.request, record.label_set)
+            if record.blind
+            else build_draw_order(self.bouts, record.request)
+        )
+        if hash_order(order) != record.order_hash:
+            raise AnnotationError(
+                f"session {session_id}: the rebuilt draw order differs from the stored one"
+            )
+        shown = [int(b) for b in order[: record.position]]
+        self.session = Session(record.request, order, record.position, list(shown))
         self.label_set, self.drawn, self.session_id = record.label_set, shown, record.id
 
     def bout(self, bout_id: int) -> pd.Series:

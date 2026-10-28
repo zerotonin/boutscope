@@ -2,20 +2,23 @@
 # ║  boutscope — annotations                                         ║
 # ║  « every verdict traceable to its labels »                       ║
 # ╠══════════════════════════════════════════════════════════════════╣
-# ║  Annotators, resumable sessions with their draw order, verdicts  ║
+# ║  Annotators, resumable sessions (seeded, order hashed), verdicts ║
 # ║  and proposed label names in one SQLite file per project.        ║
 # ╚══════════════════════════════════════════════════════════════════╝
 """Verdicts, sessions and proposed label names in one SQLite file per project.
 
-A session stores everything that made its draw, including the full draw
-order, so it can be resumed on any machine and "more" continues exactly
-where it stopped.  Every verdict carries the annotator, the session and
+A session stores everything that made its draw (the request and seed)
+and a hash of the resulting order: draw orders are deterministic, so a
+resumed session rebuilds its order and checks the hash, and "more"
+continues exactly where it stopped.  Storing the order itself would cost
+40 MB per draw on a label with 5 M bouts.  Every verdict carries the annotator, the session and
 the labelling's content hash, so a verdict can always be traced to the
 exact labels it judged.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -50,7 +53,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     max_per_animal INTEGER,
     typicality_quantile REAL NOT NULL,
     content_hash TEXT NOT NULL,
-    draw_order BLOB NOT NULL,
+    order_hash TEXT NOT NULL,
+    n_available INTEGER NOT NULL,
     position INTEGER NOT NULL,
     created TEXT NOT NULL,
     updated TEXT NOT NULL
@@ -93,7 +97,8 @@ class SessionRecord:
     request: SampleRequest
     label_set: tuple[str, ...] | None  # blind sessions: the labels mixed
     blind: bool
-    order: np.ndarray
+    order_hash: str
+    n_available: int
     position: int
     content_hash: str
     created: str
@@ -150,8 +155,8 @@ class AnnotationStore:
             cursor = self._db.execute(
                 "INSERT INTO sessions (annotator_id, labelling, label, label_set, blind, "
                 "min_duration_s, max_duration_s, strata, mode, seed, max_per_animal, "
-                "typicality_quantile, content_hash, draw_order, position, created, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "typicality_quantile, content_hash, order_hash, n_available, position, created, "
+                "updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     self.annotator_id(annotator),
                     request.labelling,
@@ -166,7 +171,8 @@ class AnnotationStore:
                     request.max_per_animal,
                     request.typicality_quantile,
                     content_hash,
-                    np.asarray(order, dtype="<i8").tobytes(),
+                    hash_order(order),
+                    len(order),
                     int(position),
                     now,
                     now,
@@ -185,7 +191,8 @@ class AnnotationStore:
         row = self._db.execute(
             "SELECT s.id, a.name, s.labelling, s.label, s.label_set, s.blind, s.min_duration_s, "
             "s.max_duration_s, s.strata, s.mode, s.seed, s.max_per_animal, "
-            "s.typicality_quantile, s.content_hash, s.draw_order, s.position, s.created "
+            "s.typicality_quantile, s.content_hash, s.order_hash, s.n_available, s.position, "
+            "s.created "
             "FROM sessions s JOIN annotators a ON a.id = s.annotator_id WHERE s.id = ?",
             (session_id,),
         ).fetchone()
@@ -206,7 +213,8 @@ class AnnotationStore:
             cap,
             quantile,
             content_hash,
-            order,
+            order_hash,
+            n_available,
             position,
             created,
         ) = row
@@ -227,7 +235,8 @@ class AnnotationStore:
             request=request,
             label_set=None if label_set is None else tuple(json.loads(label_set)),
             blind=bool(blind),
-            order=np.frombuffer(order, dtype="<i8").astype(np.int64),
+            order_hash=order_hash,
+            n_available=n_available,
             position=position,
             content_hash=content_hash,
             created=created,
@@ -237,7 +246,7 @@ class AnnotationStore:
         """All sessions with their progress, newest first (for the resume dialog)."""
         return pd.read_sql_query(
             "SELECT s.id, a.name AS annotator, s.labelling, s.label, s.blind, s.mode, s.seed, "
-            "s.position AS drawn, length(s.draw_order) / 8 AS available, "
+            "s.position AS drawn, s.n_available AS available, "
             "(SELECT count(*) FROM verdicts v WHERE v.session_id = s.id) AS rated, "
             "s.created, s.updated FROM sessions s JOIN annotators a ON a.id = s.annotator_id "
             "ORDER BY s.updated DESC, s.id DESC",
@@ -367,6 +376,11 @@ class AnnotationStore:
             raise AnnotationError(
                 f"{self.path.name}: schema {row[0]}, this boutscope reads {bc.DB_SCHEMA_VERSION}"
             )
+
+
+def hash_order(order: np.ndarray) -> str:
+    """SHA-256 of a draw order (int64, little endian), the same on every platform."""
+    return hashlib.sha256(np.asarray(order, dtype="<i8").tobytes()).hexdigest()
 
 
 def _now() -> str:
