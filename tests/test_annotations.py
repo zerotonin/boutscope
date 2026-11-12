@@ -72,6 +72,20 @@ def test_names_latest_per_annotator(store):
         store.annotator_id(" ")
 
 
+def test_label_progress_counts_bouts_and_finished_sessions(store):
+    done = store.create_session("bart", SampleRequest("pm", "3"), np.arange(4), "h")
+    store.set_position(done, 2)
+    store.record_verdict(done, 0, "3", Verdict("fits"))
+    store.record_verdict(done, 1, "3", Verdict("unsure"))
+    started = store.create_session("alex", SampleRequest("pm", "5"), np.arange(4), "h")
+    store.set_position(started, 3)
+    store.record_verdict(started, 0, "5", Verdict("fits"))
+    progress = store.label_progress("pm")
+    assert progress.loc["3"].tolist() == [2, 1, 1]
+    assert progress.loc["5"].tolist() == [1, 1, 0]
+    assert store.label_progress("other").empty
+
+
 def test_export_and_schema_guard(store, tmp_path):
     sid = store.create_session("bart", SampleRequest("pm", "3"), np.arange(2), "h")
     store.record_verdict(sid, 0, "3", Verdict("fits"))

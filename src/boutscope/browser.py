@@ -104,6 +104,39 @@ class Browser:
         summary.insert(1, "colour", [meta[k].colour for k in summary.index])
         return summary.sort_values("share_of_frames", ascending=False, kind="stable")
 
+    def label_progress(self) -> pd.DataFrame:
+        """Review state and proposed names of every label of the current labelling.
+
+        Columns: ``rated`` (bouts with a verdict, any annotator), ``scoped``
+        (``"done"`` once a non-blind session of the label is fully rated,
+        ``"started"`` once any bout has a verdict, else ``""``), ``proposed``
+        (latest proposed names, most proposed first) and ``proposed_detail``
+        (one line per annotator: name and note).
+        """
+        labels = self.label_table().index
+        progress = pd.DataFrame(index=labels)
+        progress["rated"] = 0
+        progress["scoped"] = ""
+        progress["proposed"] = ""
+        progress["proposed_detail"] = ""
+        if self.store is None:
+            return progress
+        stored = self.store.label_progress(self.labelling).reindex(labels, fill_value=0)
+        progress["rated"] = stored["rated"]
+        progress.loc[stored.rated > 0, "scoped"] = "started"
+        progress.loc[stored.finished_sessions > 0, "scoped"] = "done"
+        names = self.store.label_names(self.labelling)
+        for label, group in names.groupby("label"):
+            if str(label) not in progress.index:
+                continue
+            ranked = group["name"].value_counts(sort=True).index
+            progress.loc[str(label), "proposed"] = "; ".join(ranked)
+            progress.loc[str(label), "proposed_detail"] = "\n".join(
+                f"{row.annotator}: {row.name}" + (f"  ({row.note})" if row.note else "")
+                for row in group.itertuples()
+            )
+        return progress
+
     def select_label(self, label: str) -> None:
         self.label = str(label)
         self._reset_draw()

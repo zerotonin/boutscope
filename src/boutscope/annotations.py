@@ -344,6 +344,30 @@ class AnnotationStore:
             params=(labelling,),
         )
 
+    def label_progress(self, labelling: str) -> pd.DataFrame:
+        """Per label: bouts with a verdict, and non-blind sessions started and finished.
+
+        A session is finished when every bout it drew has a verdict.
+        """
+        rated = pd.read_sql_query(
+            "SELECT label, count(DISTINCT bout_id) AS rated FROM verdicts "
+            "WHERE labelling = ? GROUP BY label",
+            self._db,
+            params=(labelling,),
+        ).set_index("label")["rated"]
+        sessions = self.list_sessions()
+        sessions = sessions[(sessions.labelling == labelling) & (sessions.blind == 0)]
+        finished = (sessions.drawn > 0) & (sessions.rated >= sessions.drawn)
+        progress = pd.DataFrame(
+            {
+                "rated": rated,
+                "sessions": sessions.groupby("label").size(),
+                "finished_sessions": finished.groupby(sessions.label).sum(),
+            }
+        )
+        progress.index = progress.index.astype(str)
+        return progress.fillna(0).astype(int)
+
     def export_csv(self, folder: Path) -> list[Path]:
         """``verdicts.csv``, ``sessions.csv`` and ``label_names.csv`` in *folder*."""
         folder = Path(folder)
