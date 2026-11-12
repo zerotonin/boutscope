@@ -123,7 +123,7 @@ class MainWindow(QMainWindow):
 
     def _on_labelling(self, labelling: str) -> None:
         self.browser.select_labelling(labelling)
-        self.labels.set_labels(self.browser.label_table())
+        self.labels.set_labels(self.browser.label_table(), self.browser.label_progress())
         self.sampler.set_typicality_available(
             self.browser.project.labellings[labelling].has_typicality
         )
@@ -326,6 +326,8 @@ class MainWindow(QMainWindow):
         self._mark_item(self.bout_list.currentItem())
         if self.browser.is_blind:
             self._reveal(bout_id)
+        else:
+            self.labels.set_progress(self.browser.label_progress())
         if (
             self.verdicts.advance.isChecked()
             and self.bout_list.currentRow() + 1 < self.bout_list.count()
@@ -361,6 +363,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "boutscope", str(error))
             return
         self.statusBar().showMessage(f"proposed name for {self.browser.label}: {name}", 5000)
+        self.labels.set_progress(self.browser.label_progress())
         self.verdicts.name.clear()
         self.verdicts.name_note.clear()
 
@@ -416,7 +419,7 @@ class MainWindow(QMainWindow):
         self.labels.labelling_box.blockSignals(True)
         self.labels.labelling_box.setCurrentText(browser.labelling)
         self.labels.labelling_box.blockSignals(False)
-        self.labels.set_labels(browser.label_table())
+        self.labels.set_labels(browser.label_table(), browser.label_progress())
         if browser.label is not None:
             counts, edges = browser.histogram()
             self.histogram.set_histogram(

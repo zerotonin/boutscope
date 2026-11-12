@@ -31,6 +31,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from boutscope.gui.label_panel import natural_key
+
 MAX_MS: float = 3_600_000.0
 
 
@@ -56,7 +58,8 @@ class BlindDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("New blind session")
         self.list = QListWidget()
-        for key, entry in labels.iterrows():
+        order = sorted(labels.index, key=lambda k: natural_key(str(labels.loc[k, "name"])))
+        for key, entry in labels.loc[order].iterrows():
             item = QListWidgetItem(f"{entry['name']}  ({entry['share_of_frames'] * 100:.1f} %)")
             item.setData(Qt.ItemDataRole.UserRole, str(key))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)

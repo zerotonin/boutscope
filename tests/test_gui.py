@@ -12,6 +12,8 @@ pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 pytest.importorskip("cv2")
 
+from PySide6.QtCore import Qt  # noqa: E402
+
 from boutscope.gui.app import MainWindow  # noqa: E402
 from boutscope.synthetic import DemoSpec, SyntheticSpec, make_demo_project  # noqa: E402
 
@@ -204,3 +206,36 @@ def test_dialogs_without_showing_them(qtbot, window):
     resume = ResumeDialog(window.store.list_sessions())
     qtbot.addWidget(resume)
     assert resume.selected_id() == window.browser.session_id
+
+
+def test_label_table_sorts_naturally_and_by_header(window):
+    from boutscope.gui.label_panel import NAME_COLUMN, natural_key
+
+    assert natural_key("PM 2") < natural_key("pm 10") < natural_key("PM 11")
+    table = window.labels.table
+    names = [table.item(r, NAME_COLUMN).text() for r in range(table.rowCount())]
+    assert names == sorted(names, key=natural_key)
+    table.sortByColumn(5, Qt.SortOrder.DescendingOrder)  # bouts
+    bouts = [table.item(r, 5).data(Qt.ItemDataRole.UserRole + 1) for r in range(table.rowCount())]
+    assert bouts == sorted(bouts, reverse=True)
+    table.sortByColumn(NAME_COLUMN, Qt.SortOrder.AscendingOrder)
+
+
+def test_label_table_shows_scoped_and_proposed(qtbot, window):
+    from boutscope.gui.label_panel import PROPOSED_COLUMN, SCOPED_COLUMN
+
+    window.sampler.n.setValue(2)
+    window.sampler.draw_button.click()
+    _wait_for_clip(qtbot, window)
+    label = window.browser.label
+    row = window.labels.table.currentRow()
+    for _ in range(2):
+        window.verdicts.press_key("2")
+    assert window.labels.table.item(row, SCOPED_COLUMN).text().startswith("✔")
+    assert window.labels.selected_label() == label  # the refresh keeps the selection
+    window.verdicts.name.setText("slow drift")
+    window.verdicts.name_note.setText("tail still")
+    window.verdicts.propose.click()
+    proposed = window.labels.table.item(row, PROPOSED_COLUMN)
+    assert proposed.text() == "slow drift"
+    assert proposed.toolTip() == "tester: slow drift  (tail still)"
